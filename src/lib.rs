@@ -71,7 +71,6 @@ impl<V: Default> BufferPool<V> {
         }
     }
 
-    // TODO: change this not to resize
     pub fn resize(&mut self, new_len: usize) {
         if self.is_borrowed() {
             panic!("Can't resize when borrowed!");
