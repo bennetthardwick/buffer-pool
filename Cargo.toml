@@ -10,5 +10,4 @@ edition = "2018"
 debug = true
 
 [dependencies]
-bitvec = "0.16.1"
 log = "0.4.8"
