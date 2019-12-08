@@ -1,7 +1,4 @@
-extern crate log;
-
 use core::cell::RefCell;
-use log::error;
 use std::rc::Rc;
 
 type Used = Rc<RefCell<Vec<u32>>>;
@@ -275,7 +272,7 @@ impl<V> Drop for BufferPoolReference<'_, V> {
         let used = used.as_mut_slice();
 
         if let Err(_) = update_index(used, self.index, false) {
-            error!("Unable to free reference for index {}!", self.index);
+            panic!("Unable to free reference for index {}!", self.index);
         }
     }
 }
@@ -423,5 +420,4 @@ mod tests {
 
         assert_eq!(*space.as_ref(), vec![0. as f32; buffer_size][..]);
     }
-
 }

@@ -3,6 +3,8 @@ name = "buffer-pool"
 version = "0.1.0"
 authors = ["Bennett Hardwick <me@bennetthardwick.com>"]
 edition = "2018"
+license = "MIT"
+description = "A vector of vectors backed by one contiguous vector - allows mutable borrows of non-overlapping regions."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,4 +12,3 @@ edition = "2018"
 debug = true
 
 [dependencies]
-log = "0.4.8"
