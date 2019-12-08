@@ -1,4 +1,4 @@
-use buffer_pool::{BufferPool, BufferPoolBuilder};
+use bufferpool::{BufferPool, BufferPoolBuilder};
 
 fn main() {
     let mut pool: BufferPool<usize> = BufferPoolBuilder::new()

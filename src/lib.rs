@@ -130,6 +130,12 @@ impl<V: Default + Clone> BufferPool<V> {
         }
     }
 
+    pub fn clear(&mut self) {
+        for value in self.buffer.iter_mut() {
+            *value = V::default();
+        }
+    }
+
     fn set_index_used(&mut self, index: usize) -> Result<(), ()> {
         let mut used = self.used.borrow_mut();
         let used = used.as_mut_slice();

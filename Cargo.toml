@@ -1,5 +1,5 @@
 [package]
-name = "buffer-pool"
+name = "bufferpool"
 version = "0.1.1"
 authors = ["Bennett Hardwick <me@bennetthardwick.com>"]
 edition = "2018"
@@ -12,10 +12,7 @@ keywords = [ "vector", "buffer" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[profile.release]
-debug = true
-
 [dependencies]
 
 [badges]
-travis-ci = { repository = "https://github.com/bennetthardwick/buffer-pool" }
+travis-ci = { repository = "https://github.com/bennetthardwick/bufferpool" }
