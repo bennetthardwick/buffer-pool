@@ -9,10 +9,8 @@ repository = "https://github.com/bennetthardwick/buffer-pool"
 readme = "README.md"
 categories = [ "algorithms", "data-structures" ]
 keywords = [ "vector", "buffer" ]
+travis-ci = { repository = "https://github.com/bennetthardwick/buffer-pool" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[profile.release]
-debug = true
 
 [dependencies]
