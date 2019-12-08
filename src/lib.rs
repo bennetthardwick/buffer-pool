@@ -83,7 +83,14 @@ impl<V: Default + Clone> BufferPoolBuilder<V> {
         BufferPool {
             buffer_size: self.buffer_size,
             buffer: vec![V::default(); self.capacity * self.buffer_size],
-            used: Rc::new(RefCell::new(vec![0; self.capacity / BITS_IN_U32])),
+            used: Rc::new(RefCell::new(vec![
+                0;
+                if self.capacity == 0 {
+                    0
+                } else {
+                    1 + ((self.capacity - 1) / BITS_IN_U32)
+                }
+            ])),
         }
     }
 }
@@ -319,6 +326,23 @@ mod tests {
 
         assert!(pool.get_space().is_err());
         assert_eq!(index.index, 0);
+    }
+
+    #[test]
+    fn it_should_work_with_interesting_sizes() {
+        let sizes: Vec<usize> = vec![12, 100, 1001, 1024, 2048, 4096, 1];
+
+        for buffer_size in sizes.iter() {
+            for capacity in sizes.iter() {
+                let mut pool: BufferPool<f32> = BufferPoolBuilder::new()
+                    .with_buffer_size(*buffer_size)
+                    .with_capacity(*capacity)
+                    .build();
+
+                assert_eq!(pool.capacity(), *capacity);
+                assert_eq!(pool.get_space().is_err(), false);
+            }
+        }
     }
 
     #[test]
