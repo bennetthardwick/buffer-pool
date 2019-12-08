@@ -4,7 +4,7 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::marker::PhantomData;
 
-type Used = Rc<RefCell<Vec<u32>>>;
+type Used<V> = Rc<RefCell<Vec<V>>>;
 
 const BITS_IN_U32: usize = 32;
 
@@ -45,9 +45,9 @@ fn update_index(values: &mut [u32], index: usize, value: bool) -> Result<(), ()>
 }
 
 pub struct BufferPool<V: Default + Clone> {
-    buffer: Vec<V>,
+    buffer: Used<V>,
     buffer_size: usize,
-    used: Used,
+    used: Used<u32>,
 }
 
 pub struct BufferPoolBuilder<V: Default + Clone> {
@@ -84,7 +84,10 @@ impl<V: Default + Clone> BufferPoolBuilder<V> {
     pub fn build(self) -> BufferPool<V> {
         BufferPool {
             buffer_size: self.buffer_size,
-            buffer: vec![V::default(); self.capacity * self.buffer_size],
+            buffer: Rc::new(RefCell::new(vec![
+                V::default();
+                self.capacity * self.buffer_size
+            ])),
             used: Rc::new(RefCell::new(vec![
                 0;
                 if self.capacity == 0 {
@@ -142,7 +145,8 @@ impl<V: Default + Clone> BufferPool<V> {
     }
 
     pub fn clear(&mut self) {
-        for value in self.buffer.iter_mut() {
+        let mut buffer = self.buffer.borrow_mut();
+        for value in buffer.as_mut_slice().iter_mut() {
             *value = V::default();
         }
     }
@@ -162,7 +166,8 @@ impl<V: Default + Clone> BufferPool<V> {
     }
 
     pub fn capacity(&self) -> usize {
-        self.buffer.len() / self.buffer_size
+        let mut buffer = self.buffer.borrow_mut();
+        buffer.as_mut_slice().len() / self.buffer_size
     }
 
     pub fn change_buffer_size(&mut self, new_buffer_size: usize) {
@@ -176,7 +181,7 @@ impl<V: Default + Clone> BufferPool<V> {
     }
 
     pub fn len(&self) -> usize {
-        self.buffer.len() / self.buffer_size
+        self.capacity()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -227,8 +232,8 @@ impl<V: Default + Clone> BufferPool<V> {
         if self.is_borrowed() {
             Err(())
         } else {
-            self.buffer
-                .resize_with(new_len * self.buffer_size, V::default);
+            let mut buffer = self.buffer.borrow_mut();
+            (*buffer).resize_with(new_len * self.buffer_size, V::default);
 
             let mut used_capacity = self.used.borrow().len() * BITS_IN_U32;
 
@@ -257,8 +262,10 @@ impl<V: Default + Clone> BufferPool<V> {
     pub fn get_space<'a, 'b>(&'a mut self) -> Result<BufferPoolReference<'b, V>, ()> {
         self.find_free_index_and_use().and_then(|index| {
             let slice = unsafe {
+                let mut buffer = self.buffer.borrow_mut();
+
                 alloc::slice::from_raw_parts_mut(
-                    self.buffer.as_mut_ptr().add(index * self.buffer_size),
+                    (*buffer).as_mut_ptr().add(index * self.buffer_size),
                     self.buffer_size,
                 )
             };
@@ -266,6 +273,7 @@ impl<V: Default + Clone> BufferPool<V> {
             Ok(BufferPoolReference {
                 index,
                 used: Rc::clone(&self.used),
+                parent: Rc::clone(&self.buffer),
                 slice,
             })
         })
@@ -274,7 +282,12 @@ impl<V: Default + Clone> BufferPool<V> {
 
 pub struct BufferPoolReference<'a, V> {
     index: usize,
-    used: Used,
+    used: Used<u32>,
+    // This is only here so it will stay around
+    // after the parent is deallocated - never use
+    // it!
+    #[allow(dead_code)]
+    parent: Used<V>,
     slice: &'a mut [V],
 }
 
@@ -387,15 +400,17 @@ mod tests {
             *value = 2.;
         }
 
+        let buffer = pool.buffer.borrow();
         assert_eq!(
-            pool.buffer[0..(buffer_size)],
+            (*buffer)[0..(buffer_size)],
             vec![1. as f32; buffer_size][..]
         );
 
         assert_eq!(*a.as_ref(), vec![1. as f32; buffer_size][..]);
 
+        let buffer = pool.buffer.borrow();
         assert_eq!(
-            pool.buffer[(buffer_size)..(2 * buffer_size)],
+            (*buffer)[(buffer_size)..(2 * buffer_size)],
             vec![2. as f32; buffer_size][..]
         );
 
@@ -416,16 +431,19 @@ mod tests {
                 *value = 1.;
             }
 
+            let buffer = pool.buffer.borrow();
             assert_eq!(
-                pool.buffer[0..(buffer_size)],
+                (*buffer)[0..(buffer_size)],
                 vec![1. as f32; buffer_size][..]
             );
 
             assert_eq!(*a.as_ref(), vec![1. as f32; buffer_size][..]);
         }
 
+        let buffer = pool.buffer.borrow();
+
         assert_eq!(
-            pool.buffer[0..(buffer_size)],
+            (*buffer)[0..(buffer_size)],
             vec![1. as f32; buffer_size][..]
         );
     }
@@ -444,8 +462,10 @@ mod tests {
                 *value = 1.;
             }
 
+            let buffer = pool.buffer.borrow();
+
             assert_eq!(
-                pool.buffer[0..(buffer_size)],
+                (*buffer)[0..(buffer_size)],
                 vec![1. as f32; buffer_size][..]
             );
 
@@ -454,11 +474,28 @@ mod tests {
 
         let space = pool.get_cleared_space().unwrap();
 
+        let buffer = pool.buffer.borrow();
+
         assert_eq!(
-            pool.buffer[0..(buffer_size)],
+            (*buffer)[0..(buffer_size)],
             vec![0. as f32; buffer_size][..]
         );
 
         assert_eq!(*space.as_ref(), vec![0. as f32; buffer_size][..]);
+    }
+
+    #[test]
+    fn it_should_still_work_if_parent_is_dropped() {
+        let buffer_size = 10;
+        let mut pool: BufferPool<usize> = BufferPool::default();
+        pool.change_buffer_size(buffer_size);
+        pool.reserve(10);
+
+        let space = pool.get_cleared_space().unwrap();
+
+        drop(pool);
+
+        let value = space.as_ref().iter().fold(0, |a, b| a + b);
+        assert_eq!(value, 0);
     }
 }
