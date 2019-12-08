@@ -56,17 +56,19 @@ pub struct BufferPoolBuilder<V: Default + Clone> {
     marker: PhantomData<V>,
 }
 
-impl<V: Default + Clone> BufferPoolBuilder<V> {
-    pub fn new() -> BufferPoolBuilder<V> {
-        BufferPoolBuilder::default()
-    }
-
-    pub fn default() -> BufferPoolBuilder<V> {
+impl<V: Clone + Default> Default for BufferPoolBuilder<V> {
+    fn default() -> BufferPoolBuilder<V> {
         BufferPoolBuilder {
             buffer_size: 1024,
             capacity: 0,
             marker: PhantomData {},
         }
+    }
+}
+
+impl<V: Default + Clone> BufferPoolBuilder<V> {
+    pub fn new() -> BufferPoolBuilder<V> {
+        BufferPoolBuilder::default()
     }
 
     pub fn with_capacity(mut self, capacity: usize) -> BufferPoolBuilder<V> {
@@ -95,11 +97,13 @@ impl<V: Default + Clone> BufferPoolBuilder<V> {
     }
 }
 
-impl<V: Default + Clone> BufferPool<V> {
-    pub fn new() -> BufferPool<V> {
+impl<V: Default + Clone> Default for BufferPool<V> {
+    fn default() -> BufferPool<V> {
         BufferPoolBuilder::default().build()
     }
+}
 
+impl<V: Default + Clone> BufferPool<V> {
     pub fn builder() -> BufferPoolBuilder<V> {
         BufferPoolBuilder::default()
     }
@@ -175,6 +179,10 @@ impl<V: Default + Clone> BufferPool<V> {
         self.buffer.len() / self.buffer_size
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn reserve(&mut self, additional: usize) {
         self.resize(self.len() + additional);
     }
@@ -220,7 +228,7 @@ impl<V: Default + Clone> BufferPool<V> {
             Err(())
         } else {
             self.buffer
-                .resize_with(new_len * self.buffer_size, || V::default());
+                .resize_with(new_len * self.buffer_size, V::default);
 
             let mut used_capacity = self.used.borrow().len() * BITS_IN_U32;
 
@@ -287,7 +295,7 @@ impl<V> Drop for BufferPoolReference<'_, V> {
         let mut used = self.used.borrow_mut();
         let used = used.as_mut_slice();
 
-        if let Err(_) = update_index(used, self.index, false) {
+        if update_index(used, self.index, false).is_err() {
             panic!("Unable to free reference for index {}!", self.index);
         }
     }
@@ -299,7 +307,7 @@ mod tests {
 
     #[test]
     fn it_should_add_capacity() {
-        let mut pool: BufferPool<f32> = BufferPool::new();
+        let mut pool: BufferPool<f32> = BufferPool::default();
 
         assert_eq!(pool.capacity(), 0);
 
@@ -314,7 +322,7 @@ mod tests {
 
     #[test]
     fn it_should_get_space_if_capacity() {
-        let mut pool: BufferPool<f32> = BufferPool::new();
+        let mut pool: BufferPool<f32> = BufferPool::default();
 
         assert_eq!(pool.capacity(), 0);
 
@@ -347,7 +355,7 @@ mod tests {
 
     #[test]
     fn it_should_return_space_when_deallocated() {
-        let mut pool: BufferPool<f32> = BufferPool::new();
+        let mut pool: BufferPool<f32> = BufferPool::default();
 
         assert_eq!(pool.capacity(), 0);
         pool.reserve(1);
@@ -364,7 +372,7 @@ mod tests {
     #[test]
     fn it_should_update_internal_buffer() {
         let buffer_size = 10;
-        let mut pool: BufferPool<f32> = BufferPool::new();
+        let mut pool: BufferPool<f32> = BufferPool::default();
         pool.change_buffer_size(buffer_size);
         pool.reserve(10);
 
@@ -397,7 +405,7 @@ mod tests {
     #[test]
     fn it_should_not_default_space_when_deallocated() {
         let buffer_size = 10;
-        let mut pool: BufferPool<f32> = BufferPool::new();
+        let mut pool: BufferPool<f32> = BufferPool::default();
         pool.change_buffer_size(buffer_size);
         pool.reserve(10);
 
@@ -425,7 +433,7 @@ mod tests {
     #[test]
     fn it_should_clear_space_if_explicitly_requested() {
         let buffer_size = 10;
-        let mut pool: BufferPool<f32> = BufferPool::new();
+        let mut pool: BufferPool<f32> = BufferPool::default();
         pool.change_buffer_size(buffer_size);
         pool.reserve(10);
 
