@@ -1,5 +1,8 @@
+extern crate alloc;
+
+use alloc::rc::Rc;
 use core::cell::RefCell;
-use std::rc::Rc;
+use core::marker::PhantomData;
 
 type Used = Rc<RefCell<Vec<u32>>>;
 
@@ -50,7 +53,7 @@ pub struct BufferPool<V: Default + Clone> {
 pub struct BufferPoolBuilder<V: Default + Clone> {
     buffer_size: usize,
     capacity: usize,
-    marker: std::marker::PhantomData<V>,
+    marker: PhantomData<V>,
 }
 
 impl<V: Default + Clone> BufferPoolBuilder<V> {
@@ -62,7 +65,7 @@ impl<V: Default + Clone> BufferPoolBuilder<V> {
         BufferPoolBuilder {
             buffer_size: 1024,
             capacity: 0,
-            marker: std::marker::PhantomData {},
+            marker: PhantomData {},
         }
     }
 
@@ -104,7 +107,7 @@ impl<V: Default + Clone> BufferPool<V> {
 
             if index % BITS_IN_U32 == 0 {
                 if let Some(value) = used.get(index / BITS_IN_U32) {
-                    if value == &std::u32::MAX {
+                    if value == &core::u32::MAX {
                         index += BITS_IN_U32;
                         continue;
                     }
@@ -233,7 +236,7 @@ impl<V: Default + Clone> BufferPool<V> {
     pub fn get_space<'a, 'b>(&'a mut self) -> Result<BufferPoolReference<'b, V>, ()> {
         self.find_free_index_and_use().and_then(|index| {
             let slice = unsafe {
-                std::slice::from_raw_parts_mut(
+                alloc::slice::from_raw_parts_mut(
                     self.buffer.as_mut_ptr().add(index * self.buffer_size),
                     self.buffer_size,
                 )
