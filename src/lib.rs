@@ -1,45 +1,147 @@
+#![feature(test)]
+
 extern crate bitvec;
 extern crate log;
 
-use bitvec::vec::BitVec;
 use core::cell::RefCell;
+use log::error;
 use std::rc::Rc;
 
-type Used = Rc<RefCell<BitVec>>;
+type Used = Rc<RefCell<Vec<u32>>>;
 
-pub struct BufferPool<V: Default> {
+const BITS_IN_U32: usize = 32;
+
+fn value_of_index(values: &[u32], index: usize) -> Result<bool, ()> {
+    let value_index = index / BITS_IN_U32;
+    let offset = index % BITS_IN_U32;
+
+    if let Some(v) = values.get(value_index) {
+        if offset < 32 {
+            Ok(v & (1 << offset) != 0)
+        } else {
+            Err(())
+        }
+    } else {
+        Err(())
+    }
+}
+
+fn update_index(values: &mut [u32], index: usize, value: bool) -> Result<(), ()> {
+    let value_index = index / BITS_IN_U32;
+    let offset = index % BITS_IN_U32;
+
+    if let Some(v) = values.get_mut(value_index) {
+        if offset < 32 {
+            let mask = 1 << offset;
+            if value {
+                *v |= mask;
+            } else {
+                *v &= !mask;
+            }
+            Ok(())
+        } else {
+            Err(())
+        }
+    } else {
+        Err(())
+    }
+}
+
+pub struct BufferPool<V: Default + Clone> {
     buffer: Vec<V>,
     buffer_size: usize,
     used: Used,
 }
 
-impl<V: Default> BufferPool<V> {
-    pub fn new() -> BufferPool<V> {
-        BufferPool {
-            buffer: vec![],
+pub struct BufferPoolBuilder<V: Default + Clone> {
+    buffer_size: usize,
+    capacity: usize,
+    marker: std::marker::PhantomData<V>,
+}
+
+impl<V: Default + Clone> BufferPoolBuilder<V> {
+    pub fn new() -> BufferPoolBuilder<V> {
+        BufferPoolBuilder::default()
+    }
+
+    pub fn default() -> BufferPoolBuilder<V> {
+        BufferPoolBuilder {
             buffer_size: 1024,
-            used: Rc::new(RefCell::new(BitVec::new())),
+            capacity: 0,
+            marker: std::marker::PhantomData {},
         }
+    }
+
+    pub fn with_capacity(mut self, capacity: usize) -> BufferPoolBuilder<V> {
+        self.capacity = capacity;
+        self
+    }
+
+    pub fn with_buffer_size(mut self, buffer_size: usize) -> BufferPoolBuilder<V> {
+        self.buffer_size = buffer_size;
+        self
+    }
+
+    pub fn build(self) -> BufferPool<V> {
+        BufferPool {
+            buffer_size: self.buffer_size,
+            buffer: vec![V::default(); self.capacity * self.buffer_size],
+            used: Rc::new(RefCell::new(vec![0; self.capacity / BITS_IN_U32])),
+        }
+    }
+}
+
+impl<V: Default + Clone> BufferPool<V> {
+    pub fn new() -> BufferPool<V> {
+        BufferPoolBuilder::default().build()
+    }
+
+    pub fn builder() -> BufferPoolBuilder<V> {
+        BufferPoolBuilder::default()
     }
 
     fn find_free_index(&self) -> Result<usize, ()> {
-        let used = self.used.borrow();
-        if let Some(index) = used.iter().position(|&x| x == false) {
-            Ok(index)
-        } else {
-            Err(())
+        let mut index = 0;
+        let max_index = self.len();
+
+        loop {
+            let used = self.used.borrow();
+            let used = used.as_slice();
+
+            if index % BITS_IN_U32 == 0 {
+                if let Some(value) = used.get(index / BITS_IN_U32) {
+                    if value == &std::u32::MAX {
+                        index += BITS_IN_U32;
+                        continue;
+                    }
+                }
+            }
+
+            if let Ok(value) = value_of_index(used, index) {
+                if !value {
+                    return Ok(index);
+                } else {
+                    index += 1;
+
+                    if max_index <= index {
+                        return Err(());
+                    }
+                }
+            } else {
+                return Err(());
+            }
         }
     }
 
-    fn set_index_used(&mut self, index: usize) {
+    fn set_index_used(&mut self, index: usize) -> Result<(), ()> {
         let mut used = self.used.borrow_mut();
-        used.set(index, true);
+        let used = used.as_mut_slice();
+        update_index(used, index, true)
     }
 
     fn find_free_index_and_use(&mut self) -> Result<usize, ()> {
         if let Ok(index) = self.find_free_index() {
-            self.set_index_used(index);
-            Ok(index)
+            self.set_index_used(index).map(|_| index)
         } else {
             Err(())
         }
@@ -54,6 +156,11 @@ impl<V: Default> BufferPool<V> {
         self.resize(self.len());
     }
 
+    pub fn try_change_buffer_size(&mut self, new_buffer_size: usize) -> Result<(), ()> {
+        self.buffer_size = new_buffer_size;
+        self.try_resize(self.len())
+    }
+
     pub fn len(&self) -> usize {
         self.buffer.len() / self.buffer_size
     }
@@ -62,25 +169,61 @@ impl<V: Default> BufferPool<V> {
         self.resize(self.len() + additional);
     }
 
+    pub fn try_reserve(&mut self, additional: usize) -> Result<(), ()> {
+        self.try_resize(self.len() + additional)
+    }
+
     pub fn is_borrowed(&self) -> bool {
+        let mut index = 0;
+        let max_index = self.len();
+
         let used = self.used.borrow();
-        if let Some(_) = used.iter().position(|&x| x == true) {
-            true
-        } else {
-            false
+        let used = used.as_slice();
+
+        loop {
+            if let Ok(value) = value_of_index(used, index) {
+                if value {
+                    return false;
+                } else {
+                    index += 1;
+
+                    if max_index <= index {
+                        break;
+                    }
+                }
+            } else {
+                return false;
+            }
         }
+
+        false
     }
 
     pub fn resize(&mut self, new_len: usize) {
-        if self.is_borrowed() {
+        if let Err(()) = self.try_resize(new_len) {
             panic!("Can't resize when borrowed!");
         }
+    }
 
-        self.buffer
-            .resize_with(new_len * self.buffer_size, || V::default());
+    pub fn try_resize(&mut self, new_len: usize) -> Result<(), ()> {
+        if self.is_borrowed() {
+            Err(())
+        } else {
+            self.buffer
+                .resize_with(new_len * self.buffer_size, || V::default());
 
-        let mut used = self.used.borrow_mut();
-        used.resize_with(new_len, || false);
+            let mut used_capacity = self.used.borrow().len() * BITS_IN_U32;
+
+            while used_capacity < new_len {
+                let new_len = self.used.borrow().len() + 1;
+
+                self.used.borrow_mut().resize(new_len, 0);
+
+                used_capacity = self.used.borrow().len() * BITS_IN_U32;
+            }
+
+            Ok(())
+        }
     }
 
     pub fn get_cleared_space<'a, 'b>(&'a mut self) -> Result<BufferPoolReference<'b, V>, ()> {
@@ -132,12 +275,20 @@ impl<V> AsRef<[V]> for BufferPoolReference<'_, V> {
 impl<V> Drop for BufferPoolReference<'_, V> {
     fn drop(&mut self) {
         let mut used = self.used.borrow_mut();
-        used.set(self.index, false);
+        let used = used.as_mut_slice();
+
+        if let Err(_) = update_index(used, self.index, false) {
+            error!("Unable to free reference for index {}!", self.index);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    extern crate test;
+    use test::Bencher;
+
     use super::*;
 
     #[test]
@@ -278,5 +429,56 @@ mod tests {
         );
 
         assert_eq!(*space.as_ref(), vec![0. as f32; buffer_size][..]);
+    }
+
+    const MAX: usize = 4096;
+
+    #[bench]
+    fn bench_buffer_pool_vec(b: &mut Bencher) {
+        b.iter(|| {
+            let mut pool: BufferPool<usize> = BufferPoolBuilder::new()
+                .with_buffer_size(MAX)
+                .with_capacity(MAX)
+                .build();
+
+            let mut data: Vec<BufferPoolReference<'_, usize>> = Vec::with_capacity(MAX);
+
+            for _ in 0..MAX {
+                data.push(pool.get_space().unwrap());
+            }
+
+            for (index, value) in data.iter_mut().enumerate() {
+                for (inner_index, value) in value.as_mut().iter_mut().enumerate() {
+                    *value = index + inner_index;
+                }
+            }
+
+            let data = data
+                .iter()
+                .map(|x| x.as_ref().iter().fold(0, |a, b| (a + b) / 2))
+                .fold(0, |a, b| (a + b) / 2);
+
+            assert_eq!(data, MAX * 2 - 6);
+        });
+    }
+
+    #[bench]
+    fn bench_vec_of_vecs(b: &mut Bencher) {
+        b.iter(|| {
+            let mut data = vec![vec![0 as usize; MAX]; MAX];
+
+            for (index, value) in data.iter_mut().enumerate() {
+                for (inner_index, value) in value.iter_mut().enumerate() {
+                    *value = index + inner_index;
+                }
+            }
+
+            let data = data
+                .iter()
+                .map(|x| x.iter().fold(0, |a, b| (a + b) / 2))
+                .fold(0, |a, b| (a + b) / 2);
+
+            assert_eq!(data, MAX * 2 - 6);
+        });
     }
 }
