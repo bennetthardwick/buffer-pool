@@ -4,18 +4,19 @@ extern crate test;
 use bufferpool::*;
 use test::Bencher;
 
-const MAX: usize = 4096;
+const COUNT: usize = 4096;
+const BUFFER_SIZE: usize = 4096;
 
 #[bench]
 fn bench_iter_buffer_pool(b: &mut Bencher) {
     let mut pool: BufferPool<usize> = BufferPoolBuilder::new()
-        .with_buffer_size(MAX)
-        .with_capacity(MAX)
+        .with_buffer_size(BUFFER_SIZE)
+        .with_capacity(COUNT)
         .build();
 
-    let mut data: Vec<BufferPoolReference<'_, usize>> = Vec::with_capacity(MAX);
+    let mut data: Vec<BufferPoolReference<'_, usize>> = Vec::with_capacity(COUNT);
 
-    for _ in 0..MAX {
+    for _ in 0..COUNT {
         data.push(pool.get_space().unwrap());
     }
 
@@ -31,13 +32,17 @@ fn bench_iter_buffer_pool(b: &mut Bencher) {
             .map(|x| x.as_ref().iter().fold(0, |a, b| (a + b) / 2))
             .fold(0, |a, b| (a + b) / 2);
 
-        assert_eq!(data, MAX * 2 - 6);
+        assert_eq!(data, (COUNT + BUFFER_SIZE) - 6);
     });
 }
 
 #[bench]
 fn bench_iter_vec_of_vecs(b: &mut Bencher) {
-    let mut data = vec![vec![0 as usize; MAX]; MAX];
+    let mut data = vec![];
+
+    for _ in 0..COUNT {
+        data.push(vec![0 as usize; BUFFER_SIZE]);
+    }
 
     b.iter(|| {
         for (index, value) in data.iter_mut().enumerate() {
@@ -51,6 +56,6 @@ fn bench_iter_vec_of_vecs(b: &mut Bencher) {
             .map(|x| x.iter().fold(0, |a, b| (a + b) / 2))
             .fold(0, |a, b| (a + b) / 2);
 
-        assert_eq!(data, MAX * 2 - 6);
+        assert_eq!(data, (COUNT + BUFFER_SIZE) - 6);
     });
 }

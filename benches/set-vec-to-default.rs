@@ -29,8 +29,8 @@ fn bench_default_vec_of_vecs(b: &mut Bencher) {
     let mut data = vec![vec![0 as usize; MAX]; MAX];
 
     b.iter(|| {
-        for (index, value) in data.iter_mut().enumerate() {
-            for (inner_index, value) in value.iter_mut().enumerate() {
+        for value in data.iter_mut() {
+            for value in value.iter_mut() {
                 *value = 0;
             }
         }
