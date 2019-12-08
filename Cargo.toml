@@ -1,6 +1,6 @@
 [package]
 name = "bufferpool"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Bennett Hardwick <me@bennetthardwick.com>"]
 edition = "2018"
 license = "MIT"
@@ -15,4 +15,4 @@ keywords = [ "vector", "buffer" ]
 [dependencies]
 
 [badges]
-travis-ci = { repository = "https://github.com/bennetthardwick/bufferpool" }
+travis-ci = { repository = "https://github.com/bennetthardwick/buffer-pool" }
