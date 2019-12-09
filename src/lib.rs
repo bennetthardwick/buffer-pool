@@ -171,13 +171,19 @@ impl<V: Default + Clone> BufferPool<V> {
     }
 
     pub fn change_buffer_size(&mut self, new_buffer_size: usize) {
+        let len = self.len();
         self.buffer_size = new_buffer_size;
-        self.resize(self.len());
+        self.resize(len);
     }
 
     pub fn try_change_buffer_size(&mut self, new_buffer_size: usize) -> Result<(), ()> {
         self.buffer_size = new_buffer_size;
         self.try_resize(self.len())
+    }
+
+    pub fn resize_len_and_buffer(&mut self, new_len: usize, new_buffer_size: usize) {
+        self.buffer_size = new_buffer_size;
+        self.resize(new_len);
     }
 
     pub fn len(&self) -> usize {
@@ -249,7 +255,7 @@ impl<V: Default + Clone> BufferPool<V> {
         }
     }
 
-    pub fn get_cleared_space<'a, 'b>(&'a mut self) -> Result<BufferPoolReference<'b, V>, ()> {
+    pub fn get_cleared_space(&mut self) -> Result<BufferPoolReference<V>, ()> {
         self.get_space().and_then(|mut space| {
             for value in space.as_mut().iter_mut() {
                 *value = V::default();
@@ -259,28 +265,26 @@ impl<V: Default + Clone> BufferPool<V> {
         })
     }
 
-    pub fn get_space<'a, 'b>(&'a mut self) -> Result<BufferPoolReference<'b, V>, ()> {
+    pub fn get_space(&mut self) -> Result<BufferPoolReference<V>, ()> {
         self.find_free_index_and_use().and_then(|index| {
             let slice = unsafe {
-                let mut buffer = self.buffer.borrow_mut();
-
-                alloc::slice::from_raw_parts_mut(
-                    (*buffer).as_mut_ptr().add(index * self.buffer_size),
-                    self.buffer_size,
-                )
+                (*self.buffer.borrow_mut())
+                    .as_mut_ptr()
+                    .add(index * self.buffer_size)
             };
 
             Ok(BufferPoolReference {
                 index,
                 used: Rc::clone(&self.used),
                 parent: Rc::clone(&self.buffer),
+                buffer_size: self.buffer_size,
                 slice,
             })
         })
     }
 }
 
-pub struct BufferPoolReference<'a, V> {
+pub struct BufferPoolReference<V> {
     index: usize,
     used: Used<u32>,
     // This is only here so it will stay around
@@ -288,22 +292,23 @@ pub struct BufferPoolReference<'a, V> {
     // it!
     #[allow(dead_code)]
     parent: Used<V>,
-    slice: &'a mut [V],
+    slice: *mut V,
+    buffer_size: usize,
 }
 
-impl<V> AsMut<[V]> for BufferPoolReference<'_, V> {
+impl<V> AsMut<[V]> for BufferPoolReference<V> {
     fn as_mut(&mut self) -> &mut [V] {
-        self.slice
+        unsafe { alloc::slice::from_raw_parts_mut(self.slice, self.buffer_size) }
     }
 }
 
-impl<V> AsRef<[V]> for BufferPoolReference<'_, V> {
+impl<V> AsRef<[V]> for BufferPoolReference<V> {
     fn as_ref(&self) -> &[V] {
-        self.slice
+        unsafe { alloc::slice::from_raw_parts(self.slice, self.buffer_size) }
     }
 }
 
-impl<V> Drop for BufferPoolReference<'_, V> {
+impl<V> Drop for BufferPoolReference<V> {
     fn drop(&mut self) {
         let mut used = self.used.borrow_mut();
         let used = used.as_mut_slice();

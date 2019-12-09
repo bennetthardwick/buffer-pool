@@ -13,7 +13,7 @@ fn bench_default_buffer_pool_vec(b: &mut Bencher) {
         .with_capacity(MAX)
         .build();
 
-    let mut data: Vec<BufferPoolReference<'_, usize>> = Vec::with_capacity(MAX);
+    let mut data: Vec<BufferPoolReference<usize>> = Vec::with_capacity(MAX);
 
     for _ in 0..MAX {
         data.push(pool.get_space().unwrap());

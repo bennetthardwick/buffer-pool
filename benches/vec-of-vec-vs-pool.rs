@@ -14,7 +14,7 @@ fn bench_iter_buffer_pool(b: &mut Bencher) {
         .with_capacity(COUNT)
         .build();
 
-    let mut data: Vec<BufferPoolReference<'_, usize>> = Vec::with_capacity(COUNT);
+    let mut data: Vec<BufferPoolReference<usize>> = Vec::with_capacity(COUNT);
 
     for _ in 0..COUNT {
         data.push(pool.get_space().unwrap());

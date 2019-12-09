@@ -13,7 +13,7 @@ fn bench_ownership_buffer_pool_vec(b: &mut Bencher) {
         .with_capacity(MAX)
         .build();
 
-    let mut temp: Vec<BufferPoolReference<'_, usize>> = Vec::with_capacity(MAX);
+    let mut temp: Vec<BufferPoolReference<usize>> = Vec::with_capacity(MAX);
 
     b.iter(|| {
         for index in 0..MAX {
