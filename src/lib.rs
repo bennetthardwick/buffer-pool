@@ -144,6 +144,10 @@ impl<V: Default + Clone> BufferPool<V> {
         }
     }
 
+    pub fn get_buffer_size(&self) -> usize {
+        self.buffer_size
+    }
+
     pub fn clear(&mut self) {
         let mut buffer = self.buffer.borrow_mut();
         for value in buffer.as_mut_slice().iter_mut() {
