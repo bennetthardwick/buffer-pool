@@ -1,3 +1,5 @@
+//! Hey
+
 extern crate alloc;
 
 use alloc::rc::Rc;
@@ -44,12 +46,15 @@ fn update_index(values: &mut [u32], index: usize, value: bool) -> Result<(), ()>
     }
 }
 
+/// A "vector of vectors" backed by a single contiguous vector.
+/// Allows for mutable borrows of non-overlapping regions.
 pub struct BufferPool<V: Default + Clone> {
     buffer: Used<V>,
     buffer_size: usize,
     used: Used<u32>,
 }
 
+/// A builder interface for creating a new `BufferPool`.
 pub struct BufferPoolBuilder<V: Default + Clone> {
     buffer_size: usize,
     capacity: usize,
@@ -71,11 +76,13 @@ impl<V: Default + Clone> BufferPoolBuilder<V> {
         BufferPoolBuilder::default()
     }
 
+    /// Set the capacity of the buffer pool - the max number of internal buffers.
     pub fn with_capacity(mut self, capacity: usize) -> BufferPoolBuilder<V> {
         self.capacity = capacity;
         self
     }
 
+    /// Set the buffer size / length of the internal buffers.
     pub fn with_buffer_size(mut self, buffer_size: usize) -> BufferPoolBuilder<V> {
         self.buffer_size = buffer_size;
         self
@@ -113,7 +120,7 @@ impl<V: Default + Clone> BufferPool<V> {
 
     fn find_free_index(&self) -> Result<usize, ()> {
         let mut index = 0;
-        let max_index = self.len();
+        let max_index = self.capacity();
 
         loop {
             let used = self.used.borrow();
@@ -148,10 +155,26 @@ impl<V: Default + Clone> BufferPool<V> {
         self.buffer_size
     }
 
+    /// Set all of the values back to their defaults
+    pub fn try_clear(&mut self) -> Result<(), ()> {
+        if self.is_borrowed() {
+            Err(())
+        } else {
+            let mut buffer = self.buffer.borrow_mut();
+            for value in buffer.as_mut_slice().iter_mut() {
+                *value = V::default();
+            }
+            Ok(())
+        }
+    }
+
+    /// Set all of the values back to their defaults
+    ///
+    /// # Panics
+    /// If any of the buffers have been borrowed.
     pub fn clear(&mut self) {
-        let mut buffer = self.buffer.borrow_mut();
-        for value in buffer.as_mut_slice().iter_mut() {
-            *value = V::default();
+        if self.try_clear().is_err() {
+            panic!("Cannot clear when buffers are borrowed!");
         }
     }
 
@@ -169,46 +192,60 @@ impl<V: Default + Clone> BufferPool<V> {
         }
     }
 
+    /// Return the max number of buffers
     pub fn capacity(&self) -> usize {
         let mut buffer = self.buffer.borrow_mut();
         buffer.as_mut_slice().len() / self.buffer_size
     }
 
+    /// Resize the internal buffers
+    ///
+    /// # Panics
+    /// If any of the buffers have been borrowed.
     pub fn change_buffer_size(&mut self, new_buffer_size: usize) {
-        let len = self.len();
-        self.buffer_size = new_buffer_size;
-        self.resize(len);
+        if self.try_change_buffer_size(new_buffer_size).is_err() {
+            panic!("Cannot change buffer size when buffers are borrowed!");
+        }
     }
 
+    /// Resize the internal buffers
     pub fn try_change_buffer_size(&mut self, new_buffer_size: usize) -> Result<(), ()> {
+        let len = self.capacity();
         self.buffer_size = new_buffer_size;
-        self.try_resize(self.len())
+        self.try_resize(len)
     }
 
+    /// Resize both the capacity and buffers
+    ///
+    /// # Panics
+    /// If any of the buffers have been borrowed
     pub fn resize_len_and_buffer(&mut self, new_len: usize, new_buffer_size: usize) {
         self.buffer_size = new_buffer_size;
         self.resize(new_len);
     }
 
-    pub fn len(&self) -> usize {
-        self.capacity()
-    }
-
+    /// Check whether the buffer pool has no capacity
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.capacity() == 0
     }
-
+    
+    /// Reserve an additional number of buffers
+    /// 
+    /// # Panics
+    /// If any of the buffers have been borrowed
     pub fn reserve(&mut self, additional: usize) {
-        self.resize(self.len() + additional);
+        self.resize(self.capacity() + additional);
     }
 
+    /// Reserve an additional number of buffers
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), ()> {
-        self.try_resize(self.len() + additional)
+        self.try_resize(self.capacity() + additional)
     }
 
+    /// Checks to see whether any of the internal slices have been borrowed.
     pub fn is_borrowed(&self) -> bool {
         let mut index = 0;
-        let max_index = self.len();
+        let max_index = self.capacity();
 
         let used = self.used.borrow();
         let used = used.as_slice();
@@ -232,12 +269,17 @@ impl<V: Default + Clone> BufferPool<V> {
         false
     }
 
+    /// Change the number of internal buffers
+    ///
+    /// # Panics
+    /// If any of the internal buffers have been borrowed
     pub fn resize(&mut self, new_len: usize) {
-        if let Err(()) = self.try_resize(new_len) {
+        if self.try_resize(new_len).is_err() {
             panic!("Can't resize when borrowed!");
         }
     }
 
+    /// Change the number of internal buffers
     pub fn try_resize(&mut self, new_len: usize) -> Result<(), ()> {
         if self.is_borrowed() {
             Err(())
@@ -259,6 +301,8 @@ impl<V: Default + Clone> BufferPool<V> {
         }
     }
 
+    /// Get a reference to a slice of the `BufferPool` setting the values of the
+    /// pool back to their default value.
     pub fn get_cleared_space(&mut self) -> Result<BufferPoolReference<V>, ()> {
         self.get_space().and_then(|mut space| {
             for value in space.as_mut().iter_mut() {
@@ -269,6 +313,7 @@ impl<V: Default + Clone> BufferPool<V> {
         })
     }
 
+    /// Get a reference to a slice of the `BufferPool`.
     pub fn get_space(&mut self) -> Result<BufferPoolReference<V>, ()> {
         self.find_free_index_and_use().and_then(|index| {
             let slice = unsafe {
@@ -288,6 +333,9 @@ impl<V: Default + Clone> BufferPool<V> {
     }
 }
 
+/// A reference to a slice of the `BufferPool`.
+/// When dropped it will finish the borrow and return
+/// the space.
 pub struct BufferPoolReference<V> {
     index: usize,
     used: Used<u32>,
